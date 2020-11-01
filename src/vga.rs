@@ -50,9 +50,9 @@ pub fn set_palette() {
     asm::out8(0x03c8, 0);
     for i in 0..16 {
         // 書き込むときは上位2ビットを0にしないといけない。See: http://oswiki.osask.jp/?VGA#o2d4bfd3
-        asm::out8(0x03c9, COLOR_PALETTE[i][0] / 4);
-        asm::out8(0x03c9, COLOR_PALETTE[i][1] / 4);
-        asm::out8(0x03c9, COLOR_PALETTE[i][2] / 4);
+        asm::out8(0x03c9, COLOR_PALETTE[i][0] >> 2);
+        asm::out8(0x03c9, COLOR_PALETTE[i][1] >> 2);
+        asm::out8(0x03c9, COLOR_PALETTE[i][2] >> 2);
     }
     asm::store_eflags(eflags);
 }
