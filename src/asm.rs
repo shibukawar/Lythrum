@@ -26,7 +26,7 @@ pub fn cli() {
 // outに使うときでなおかつ初期化しているときはmutにする必要がある
 pub fn out8(mut port: u32, mut data: u8) {
     unsafe {
-        // OUT dx,al で命令は完成している
+        // OUT dx,al で命令は完成している(ポートにつながっているデバイスにデータを送る)
         // dx, alはそれぞれ具体的なレジスタをさしていて、それぞれにどの変数を束縛するかを後から指定してやる必要がある
         asm!("OUT dx,al", inout("dx") port, inout("al") data);
     }
