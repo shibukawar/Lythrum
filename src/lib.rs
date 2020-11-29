@@ -3,41 +3,43 @@
 #![feature(start)]
 
 use core::panic::PanicInfo;
-use vga::{Screen, ScreenWriter};
 
 mod asm;
+mod descriptor_table;
 mod fonts;
+mod interrupt;
 mod vga;
 
 #[no_mangle]
-fn hlt() {
-    unsafe {
-        asm!("hlt");
-    }
-}
-
-#[no_mangle]
 #[start]
-pub extern "C" fn haribote_os() -> ! {
+pub extern "C" fn haribote_os() {
+    use asm::{hlt, sti};
+    use vga::{Screen, ScreenWriter};
+
+    descriptor_table::init();
+    interrupt::init();
+    sti();
+    interrupt::allow_input();
+
     let mut screen = Screen::new();
     screen.init();
-    let mut writer = ScreenWriter::new(screen, vga::Color::White, 10, 10);
+    let mut writer = ScreenWriter::new(screen, vga::Color::White, 0, 0);
     use core::fmt::Write;
     write!(writer, "ABC\nabc\n").unwrap();
-    write!(writer, "10 * 3 = {}\n", 10 * 3).unwrap();
-    write!(
-        writer,
-        "I saw a girl with a telescope."
-    ).unwrap();
     loop {
         hlt()
     }
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    // println!("{}", info);
+fn panic(info: &PanicInfo) -> ! {
+    use vga::{Screen, ScreenWriter};
+    let mut screen = Screen::new();
+    screen.init();
+    let mut writer = ScreenWriter::new(screen, vga::Color::LightRed, 0, 0);
+    use core::fmt::Write;
+    write!(writer, "[ERR] {:?}", info).unwrap();
     loop {
-        hlt()
+        asm::hlt()
     }
 }

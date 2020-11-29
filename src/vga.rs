@@ -229,7 +229,8 @@ impl fmt::Write for ScreenWriter {
         for i in 0..str_bytes.len() {
             if str_bytes[i] == b'\n' {
                 self.newline();
-                return Ok(());
+                continue;
+                // return Ok(());
             }
             if self.x + FONT_WIDTH < width && self.y + FONT_HEIGHT < height {
                 self.screen
