@@ -43,7 +43,7 @@ SECTIONS{
 	/*.dataセクションのファイル上の開始位置*/
 	AT(LOADADDR(.text) + SIZEOF(.text)) SUBALIGN(4)
 	{
-		*(.data)
+		*(.data*)
 		*(.rodata*)
 	}
 
