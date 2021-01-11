@@ -14,11 +14,11 @@ const FLAGS_OVERRUN: u32 = 0x0001;
 impl Fifo {
     pub fn new(size: u32) -> Fifo {
         Fifo {
-            p: Cell::new(0), // next write
-            q: Cell::new(0), // next read
-            free: Cell::new(size), // available buffer size
-            flags: Cell::new(0), // 
-            size: size, // total buffer size
+            p: Cell::new(0),
+            q: Cell::new(0),
+            free: Cell::new(size),
+            flags: Cell::new(0),
+            size: size,
             buf: RefCell::new([0; 128]),
         }
     }
@@ -44,14 +44,13 @@ impl Fifo {
         if self.free.get() == self.size {
             return Err("NO DATA");
         }
-        let tmp = self.buff.borrow();
-        let data = tmp[self.q.get() as usize];
+        let data = self.buf.borrow()[self.q.get() as usize];
         self.q.set(self.q.get() + 1);
         if self.q.get() == self.size {
             self.q.set(0);
         }
         self.free.set(self.free.get() + 1);
-        Ok(data);
+        Ok(data)
     }
 
     pub fn status(&self) -> u32 {

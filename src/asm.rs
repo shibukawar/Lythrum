@@ -36,6 +36,13 @@ pub fn sti() {
     }
 }
 
+pub fn stihlt() {
+    unsafe {
+        asm!("STI
+              HLT");
+    }
+}
+
 // outに使うときでなおかつ初期化しているときはmutにする必要がある
 pub fn out8(mut port: u32, mut data: u8) {
     unsafe {
@@ -43,6 +50,16 @@ pub fn out8(mut port: u32, mut data: u8) {
         // dx, alはそれぞれ具体的なレジスタをさしていて、それぞれにどの変数を束縛するかを後から指定してやる必要がある
         asm!("OUT dx,al", inout("dx") port, inout("al") data);
     }
+}
+
+pub fn in8(port: u32) -> u8 {
+    let mut r: u8 = 0;
+    unsafe {
+        asm!("MOV EDX,{}", in(reg) port);
+        asm!("MOV EAX,0");
+        asm!("IN AL,DX" , inout("al") r);
+    }
+    r
 }
 
 #[derive(Debug, Clone, Copy)]
