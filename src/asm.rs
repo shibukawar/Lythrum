@@ -53,13 +53,11 @@ pub fn out8(mut port: u32, mut data: u8) {
 }
 
 pub fn in8(port: u32) -> u8 {
-    let mut r: u8 = 0;
+    let mut data: u8 = 0;
     unsafe {
-        asm!("MOV EDX,{}", in(reg) port);
-        asm!("MOV EAX,0");
-        asm!("IN AL,DX" , inout("al") r);
+        asm!("IN al,dx", out("al") data, in("edx") port);
     }
-    r
+    data
 }
 
 #[derive(Debug, Clone, Copy)]

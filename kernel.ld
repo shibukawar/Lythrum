@@ -1,6 +1,7 @@
+  
 /*
-kernel.ls
-kotetuco 2008 - 2016
+Thanks to kotetuco
+https://github.com/kotetuco/ructiss/blob/master/kernel/arch/i686-unknown-linux-gnu/kernel.ld
 */
 
 /*入力オブジェクトファイル(将来的にMakefileで定義)*/
@@ -32,7 +33,7 @@ SECTIONS{
 	.text ADDR(.head) + SIZEOF(.head) : SUBALIGN(1)
 	{
 		/*.textセクション全部を含む*/
-		*(.text.os_main)
+		*(.text.haribote_os)
 		*(.text*)
 	}
 
@@ -53,7 +54,7 @@ SECTIONS{
 	/*.bssセクションのファイル上の開始位置*/
 	AT(LOADADDR(.data) + SIZEOF(.data)) SUBALIGN(4)
 	{
-		*(.bss)
+		*(.bss*)
 	}
 
 	/* 上記以外のセクションは無視する */
