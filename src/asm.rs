@@ -82,6 +82,7 @@ pub fn load_idtr(limit: i32, adr: i32) {
 #[macro_export]
 macro_rules! handler {
     ($name: ident) => {{ 
+        #[naked]
         pub extern "C" fn wrapper() {
             unsafe {
                 asm!("PUSH ES

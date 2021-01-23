@@ -26,7 +26,7 @@ pub extern "C" fn haribote_os() {
     interrupt::allow_input();
     let mut screen = Screen::new();
     screen.init();
-    // enable_mouse();
+    enable_mouse();
     loop {
         cli();
         if KEYBUF.lock().status() != 0 {
