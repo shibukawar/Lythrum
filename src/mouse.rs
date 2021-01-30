@@ -1,15 +1,5 @@
+use crate::vga::{Color, Screen};
 use core::cell::{Cell, RefCell};
-
-use crate::asm::{in8, out8};
-use crate::fifo::Fifo;
-use crate::interrupt::{PIC0_OCW2, PIC1_OCW2, PORT_KEYCMD, PORT_KEYDAT};
-use crate::keyboard::wait_kbc_sendready;
-use crate::vga::{putblock, Color};
-
-const KEYCMD_SENDTO_MOUSE: u8 = 0xd4;
-const MOUSECMD_ENABLE: u8 = 0xf4;
-
-static mut MOUSE_FIFO_ADDR: usize = 0;
 
 #[derive(Debug)]
 pub struct MouseDec {
@@ -87,12 +77,13 @@ pub const MOUSE_CURSOR_HEIGHT: usize = 16;
 
 #[derive(Debug)]
 pub struct Mouse {
+    x: Cell<i32>,
+    y: Cell<i32>,
     cursor: [[Color; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT],
-    buf_mouse_addr: usize,
 }
 
 impl Mouse {
-    pub fn new(buf_mouse_addr: usize) -> Mouse {
+    pub fn new(x: i32, y: i32) -> Mouse {
         let cursor_icon: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
             *b"**************..",
             *b"*OOOOOOOOOOO*...",
@@ -125,40 +116,52 @@ impl Mouse {
         }
 
         Mouse {
+            x: Cell::new(x),
+            y: Cell::new(y),
             cursor,
-            buf_mouse_addr,
         }
     }
 
+    pub fn move_and_render(&self, x: i32, y: i32) {
+        // まず消す
+        let mut screen = Screen::new();
+        screen.boxfill8(
+            Color::DarkCyan,
+            self.x.get() as isize,
+            self.y.get() as isize,
+            (self.x.get() + MOUSE_CURSOR_WIDTH as i32 - 1) as isize,
+            (self.y.get() + MOUSE_CURSOR_HEIGHT as i32 - 1) as isize,
+        );
+        // 移動
+        let mx = self.x.get() + x;
+        let my = self.y.get() + y;
+        let xmax = screen.scrnx as i32 - MOUSE_CURSOR_WIDTH as i32;
+        let ymax = screen.scrny as i32 - MOUSE_CURSOR_HEIGHT as i32;
+        if mx < 0 {
+            self.x.set(0);
+        } else if mx > xmax {
+            self.x.set(xmax);
+        } else {
+            self.x.set(mx);
+        }
+        if my < 0 {
+            self.y.set(0);
+        } else if my > ymax {
+            self.y.set(ymax);
+        } else {
+            self.y.set(my);
+        }
+        // 現在位置で描画
+        self.render();
+    }
+
     pub fn render(&self) {
-        putblock(
-            self.buf_mouse_addr,
-            MOUSE_CURSOR_WIDTH as isize,
+        Screen::new().putblock(
             self.cursor,
             MOUSE_CURSOR_WIDTH as isize,
             MOUSE_CURSOR_HEIGHT as isize,
-            0,
-            0,
+            self.x.get() as isize,
+            self.y.get() as isize,
         );
     }
-}
-
-pub fn enable_mouse(fifo_addr: usize) {
-    unsafe {
-        MOUSE_FIFO_ADDR = fifo_addr;
-    }
-    wait_kbc_sendready();
-    out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
-    wait_kbc_sendready();
-    out8(PORT_KEYDAT, MOUSECMD_ENABLE);
-}
-
-const MOUSE_OFFSET: u32 = 512;
-
-pub extern "C" fn inthandler2c() {
-    out8(PIC1_OCW2, 0x64); // IRQ-12受付完了をPIC1に通知
-    out8(PIC0_OCW2, 0x62); // IRQ-02受付完了をPIC0に通知
-    let data = in8(PORT_KEYDAT);
-    let fifo = unsafe { &mut *(MOUSE_FIFO_ADDR as *mut Fifo) };
-    fifo.put(data as u32 + MOUSE_OFFSET).unwrap();
 }

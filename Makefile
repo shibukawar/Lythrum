@@ -27,11 +27,11 @@ img :
 
 run :
 	make img
-	qemu-system-i386 -fda $(IMG)
+	qemu-system-i386 -m 32 -fda $(IMG)
 
 debug :
 	make img
-	qemu-system-i386 -fda $(IMG) -gdb tcp::10000 -S
+	qemu-system-i386 -m 32 -fda $(IMG) -gdb tcp::10000 -S & 
 
 clean :
 	rm -rf $(OUTPUT_DIR)/*
