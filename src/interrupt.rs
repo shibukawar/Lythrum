@@ -9,6 +9,9 @@ lazy_static! {
     pub static ref MOUSEBUF: Mutex<Fifo> = Mutex::new(Fifo::new(128));
 }
 
+// pub static ref KEYBUF1: Mutex<Fifo> = Mutex::new(Fifo::new(32));
+// pub static ref MOUSEBUF2: Mutex<Fifo> = Mutex::new(Fifo::new(128));
+
 const PIC0_ICW1: u32 = 0x0020;
 const PIC0_OCW2: u32 = 0x0020;
 const PIC0_IMR: u32 = 0x0021;
