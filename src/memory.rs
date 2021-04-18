@@ -1,6 +1,10 @@
 use volatile::Volatile;
-
+use core::cell::{Cell, RefCell};
+use core::alloc::GlobalAlloc;
+use core::alloc::Layout;
+use alloc::vec;
 use crate::asm;
+use spin::Mutex;
 
 const EFLAGS_AC_BIT: u32 = 0x00040000;
 const CR0_CACHE_DISABLE: u32 = 0x60000000;
@@ -69,45 +73,80 @@ struct FreeInfo {
     size: u32,
 }
 
-#[derive(Clone, Copy)]
-#[repr(C, packed)]
+
+
+// #[derive(Clone, Copy)]
+// #[repr(C, packed)]
 pub struct MemMan {
-    frees: u32,
-    maxfrees: u32,
-    lostsize: u32,
-    losts: u32,
-    free: [FreeInfo; MEMMAN_FREES as usize],
+    notifier: Mutex<()>,
+    frees: Cell<u32>,
+    maxfrees: Cell<u32>,
+    lostsize: Cell<u32>,
+    losts: Cell<u32>,
+    free: RefCell<[FreeInfo; MEMMAN_FREES as usize]>,
 }
 
+unsafe impl GlobalAlloc for MemMan {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // pub fn alloc(&self, size: u32) -> Result<u32, &'static str>
+        // 1. Compare alloc interfaces between MemMan and GlobalAlloc
+        // layout has size info: layout.size <-> size in MemMan.alloc's size arg
+        // MamMan.alloc: address of allocated memory. If failed, return string.
+        // GlobalAlloc: address of allocated memory. If failed, just panic.
+        // todo: cast u32 to *mut u8
+        let addr = self.alloc_by_size(layout.size() as u32);
+        // todo: cast u32 to *mut u8
+        addr.unwrap() as *mut u8 // mutable なu8 へのポインタ
+    }
+
+    unsafe fn dealloc(&self, addr: *mut u8, layout: Layout) {
+        self.free(addr as u32, layout.size() as u32).unwrap();
+    }
+}
+
+#[global_allocator]
+pub static memman: MemMan = MemMan::new(); // static 関数みたいなもん
+
+unsafe impl Sync for MemMan {} // コンパイラにスレッドセーフだよと教えてあげる（嘘でもよい）。MarkerTraitという。
+
 impl MemMan {
-    pub fn new() -> MemMan {
+    pub const fn new() -> MemMan {
         MemMan {
-            frees: 0,
-            maxfrees: 0,
-            lostsize: 0,
-            losts: 0,
-            free: [FreeInfo { addr: 0, size: 0 }; MEMMAN_FREES as usize],
+            notifier: Mutex::new(()), // 中身が空でいい時
+            frees: Cell::new(0),
+            maxfrees: Cell::new(0),
+            lostsize: Cell::new(0),
+            losts: Cell::new(0),
+            free: RefCell::new([FreeInfo { addr: 0, size: 0 }; MEMMAN_FREES as usize]),
         }
     }
 
     pub fn total(&self) -> u32 {
+        let res = self.notifier.lock();
         let mut t = 0;
-        for i in 0..self.frees {
-            t += self.free[i as usize].size;
+        let free = self.free.borrow();
+        for i in 0..self.frees.get() {
+            t += free[i as usize].size;
         }
         t
     }
 
-    pub fn alloc(&mut self, size: u32) -> Result<u32, &'static str> {
-        for i in 0..self.frees {
+    pub fn alloc_by_size(&self, size: u32) -> Result<u32, &'static str> {
+        let res = self.notifier.lock();
+        let mut free = self.free.borrow_mut();
+        for i in 0..self.frees.get() {
             let i = i as usize;
-            if self.free[i].size >= size {
-                let a = self.free[i].addr;
-                self.free[i].addr += size;
-                self.free[i].size -= size;
-                if self.free[i].size == 0 {
-                    self.frees -= 1;
-                    self.free[i] = self.free[i + 1]
+            if free[i].size >= size {
+                let a = free[i].addr; // address
+                free[i].addr += size;
+                free[i].size -= size;
+                // self.free[i].addr += size;
+                // self.free[i].size -= size;
+                if free[i].size == 0 {
+                    // self.frees -= 1;
+                    // self.free[i] = self.free[i + 1]
+                    self.frees.set(self.frees.get() - 1);
+                    free[i] = free[i + 1];
                 }
                 return Ok(a);
             }
@@ -115,63 +154,65 @@ impl MemMan {
         Err("CANNOT ALLOCATE MEMORY")
     }
 
-    pub fn free(&mut self, addr: u32, size: u32) -> Result<(), &'static str> {
+    pub fn free(&self, addr: u32, size: u32) -> Result<(), &'static str> {
+        let res = self.notifier.lock();
         let mut idx: usize = 0;
+        let mut free = self.free.borrow_mut();
         // addrの順に並ぶように、insertすべきindexを決める
-        for i in 0..self.frees {
+        for i in 0..self.frees.get() {
             let i = i as usize;
-            if self.free[i].addr > addr {
+            if free[i].addr > addr {
                 idx = i;
                 break;
             }
         }
         if idx > 0 {
-            if self.free[idx - 1].addr + self.free[idx - 1].size == addr {
-                self.free[idx - 1].size += size;
-                if idx < self.frees as usize {
-                    if addr + size == self.free[idx].addr {
-                        self.free[idx - 1].size += self.free[idx].size;
+            if free[idx - 1].addr + free[idx - 1].size == addr {
+                free[idx - 1].size += size;
+                if idx < self.frees.get() as usize {
+                    if addr + size == free[idx].addr {
+                        free[idx - 1].size += free[idx].size;
                     }
-                    self.frees -= 1;
-                    for i in idx..(self.frees as usize) {
-                        self.free[i] = self.free[i + 1];
+                    self.frees.set(self.frees.get() - 1);
+                    for i in idx..(self.frees.get() as usize) {
+                        free[i] = free[i + 1];
                     }
                 }
                 return Ok(());
             }
         }
-        if idx < self.frees as usize {
-            if addr + size == self.free[idx].addr {
-                self.free[idx].addr = addr;
-                self.free[idx].size += size;
+        if idx < self.frees.get() as usize {
+            if addr + size == free[idx].addr {
+                free[idx].addr = addr;
+                free[idx].size += size;
                 return Ok(());
             }
         }
-        if self.frees < MEMMAN_FREES {
-            let mut j = self.frees as usize;
+        if self.frees.get() < MEMMAN_FREES {
+            let mut j = self.frees.get() as usize;
             while j > idx {
-                self.free[j] = self.free[j - 1];
+                free[j] = free[j - 1];
                 j -= 1;
             }
-            self.frees += 1;
-            if self.maxfrees < self.frees {
-                self.maxfrees = self.frees;
+            self.frees.set(self.frees.get() + 1);
+            if self.maxfrees.get() < self.frees.get() {
+                self.maxfrees.set(self.frees.get());
             }
-            self.free[idx].addr = addr;
-            self.free[idx].size = size;
+            free[idx].addr = addr;
+            free[idx].size = size;
             return Ok(());
         }
-        self.losts += 1;
-        self.lostsize += size;
+        self.losts.set(self.losts.get() + 1);
+        self.lostsize.set(self.lostsize.get() + size);
         Err("CANNOT FREE MEMORY")
     }
 
-    pub fn alloc_4k(&mut self, size: u32) -> Result<u32, &'static str> {
+    pub fn alloc_4k(&self, size: u32) -> Result<u32, &'static str> {
         let size = (size + 0xfff) & 0xfffff000;
-        self.alloc(size)
+        self.alloc_by_size(size)
     }
 
-    pub fn free_4k(&mut self, addr: u32, size: u32) -> Result<(), &'static str> {
+    pub fn free_4k(&self, addr: u32, size: u32) -> Result<(), &'static str> {
         let size = (size + 0xfff) & 0xfffff000;
         self.free(addr, size)
     }

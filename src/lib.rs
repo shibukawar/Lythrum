@@ -3,10 +3,11 @@
 #![feature(start)]
 #![feature(naked_functions)]
 #![allow(dead_code)]
+#![feature(default_alloc_error_handler)]
 
-// extern crate alloc;
+extern crate alloc;
 
-// use alloc::vec;
+use alloc::vec;
 use core::panic::PanicInfo;
 
 mod asm;
@@ -25,7 +26,7 @@ pub extern "C" fn haribote_os() {
     use asm::{cli, sti};
     use core::fmt::Write;
     use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
-    use memory::{MemMan, MEMMAN_ADDR};
+    use memory::{MemMan, MEMMAN_ADDR, memman};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use sheet::SheetManager;
     use vga::{
@@ -40,11 +41,15 @@ pub extern "C" fn haribote_os() {
     init_palette();
     enable_mouse();
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
-    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
-    *memman = MemMan::new();
+    // let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+    // *memman = MemMan::new();
     memman.free(0x00001000, 0x0009e000).unwrap();
     memman.free(0x00400000, 2).unwrap();
+    // let boundary = 0x00400000 + (memtotal - 0x00400000) / 2 as u32;
     memman.free(0x00400000, memtotal - 0x00400000).unwrap();
+    // memman.free(0x00400000, boundary).unwrap();
+
+    // myAllocator.free(boundary, memtotal);
 
     let sheet_manager_addr = memman
         .alloc_4k(core::mem::size_of::<SheetManager>() as u32)
@@ -144,6 +149,8 @@ pub extern "C" fn haribote_os() {
                 *SCREEN_HEIGHT as usize,
             );
             write!(writer, "{:x}", key).unwrap();
+            // let v = vec![1, 2];
+            // write!(writer, "{}", v.sum().unwrap());
             sheet_manager.refresh(shi_bg, 0, 0, 16, 16);
         } else if MOUSEBUF.lock().status() != 0 {
             let i = MOUSEBUF.lock().get().unwrap();
