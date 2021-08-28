@@ -1,5 +1,9 @@
 use crate::asm;
 use crate::handler;
+use crate::keyboard::inthandler21;
+use crate::mouse::inthandler2c;
+use crate::timer::inthandler20;
+use asm::{load_gdtr, load_idtr};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -62,8 +66,6 @@ const AR_DATA32_RW: i32 = 0x4092;
 const AR_CODE32_ER: i32 = 0x409a;
 
 pub fn init() {
-    use crate::interrupt::{inthandler21, inthandler2c};
-    use asm::{load_gdtr, load_idtr};
     // GDTの初期化
     for i in 0..=(LIMIT_GDT / 8) {
         let gdt = unsafe { &mut *((ADR_GDT + i * 8) as *mut SegmentDescriptor) };
@@ -73,7 +75,6 @@ pub fn init() {
     *gdt = SegmentDescriptor::new(0xffffffff, 0x00000000, AR_DATA32_RW);
     let gdt = unsafe { &mut *((ADR_GDT + 2 * 8) as *mut SegmentDescriptor) };
     *gdt = SegmentDescriptor::new(LIMIT_BOTPAK, ADR_BOTPAK, AR_CODE32_ER);
-
     load_gdtr(LIMIT_GDT, ADR_GDT);
 
     // IDTの初期化
@@ -87,5 +88,7 @@ pub fn init() {
     *idt = GateDescriptor::new(handler!(inthandler21) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x2c * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(handler!(inthandler2c) as u32, 2 * 8, AR_INTGATE32);
+    let idt = unsafe { &mut *((ADR_IDT + 0x20 * 8) as *mut GateDescriptor) };
+    *idt = GateDescriptor::new(handler!(inthandler20) as u32, 2 * 8, AR_INTGATE32);
     load_idtr(LIMIT_IDT, ADR_IDT);
 }

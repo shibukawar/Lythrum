@@ -2,12 +2,7 @@
 #![feature(asm)]
 #![feature(start)]
 #![feature(naked_functions)]
-#![allow(dead_code)]
-#![feature(default_alloc_error_handler)]
 
-extern crate alloc;
-
-use alloc::vec;
 use core::panic::PanicInfo;
 
 mod asm;
@@ -18,38 +13,51 @@ mod interrupt;
 mod memory;
 mod mouse;
 mod sheet;
+mod timer;
 mod vga;
 
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
-    use asm::{cli, sti};
+    use asm::{cli, sti, stihlt};
     use core::fmt::Write;
-    use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
+    use fifo::FIFO_BUF;
+    use interrupt::enable_mouse;
+    use keyboard::{KEYBOARD_OFFSET, KEYTABLE};
     use memory::{MemMan, MEMMAN_ADDR, memman};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use sheet::SheetManager;
+    use timer::TIMER_MANAGER;
     use vga::{
-        boxfill, init_palette, init_screen, make_window, Color, ScreenWriter, SCREEN_HEIGHT,
-        SCREEN_WIDTH,
+        boxfill, init_palette, init_screen, make_textbox, make_window, Color, ScreenWriter,
+        SCREEN_HEIGHT, SCREEN_WIDTH
     };
 
     descriptor_table::init();
     interrupt::init();
     sti();
     interrupt::allow_input();
+    timer::init_pit();
     init_palette();
     enable_mouse();
+
+    let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
+    assert_eq!(timer_index1, 0);
+    TIMER_MANAGER.lock().init_timer(timer_index1, 3);
+    TIMER_MANAGER.lock().set_time(timer_index1, 300);
+    let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER.lock().init_timer(timer_index2, 10);
+    TIMER_MANAGER.lock().set_time(timer_index2, 1000);
+    let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
+    TIMER_MANAGER.lock().set_time(timer_index3, 50);
+
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
     // let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
     // *memman = MemMan::new();
     memman.free(0x00001000, 0x0009e000).unwrap();
     memman.free(0x00400000, 2).unwrap();
-    // let boundary = 0x00400000 + (memtotal - 0x00400000) / 2 as u32;
     memman.free(0x00400000, memtotal - 0x00400000).unwrap();
-    // memman.free(0x00400000, boundary).unwrap();
-
-    // myAllocator.free(boundary, memtotal);
 
     let sheet_manager_addr = memman
         .alloc_4k(core::mem::size_of::<SheetManager>() as u32)
@@ -86,7 +94,8 @@ pub extern "C" fn haribote_os() {
     let mouse = Mouse::new(buf_mouse_addr);
     mouse.render();
 
-    make_window(buf_win_addr, 160, 52, "counter");
+    make_window(buf_win_addr, 160, 52, "window");
+    make_textbox(buf_win_addr, 160, 8, 28, 144, 16, Color::White);
 
     sheet_manager.slide(shi_mouse, mx, my);
     sheet_manager.slide(shi_win, 80, 72);
@@ -94,115 +103,171 @@ pub extern "C" fn haribote_os() {
     sheet_manager.updown(shi_win, Some(1));
     sheet_manager.updown(shi_mouse, Some(2));
 
-    boxfill(
+    write_with_bg!(
+        sheet_manager,
+        shi_bg,
         buf_bg_addr,
         *SCREEN_WIDTH as isize,
+        *SCREEN_HEIGHT as isize,
+        0,
+        32,
+        Color::White,
         Color::DarkCyan,
-        0,
-        32,
-        100,
-        48,
-    );
-    let mut writer = ScreenWriter::new(
-        Some(buf_bg_addr),
-        vga::Color::White,
-        0,
-        32,
-        *SCREEN_WIDTH as usize,
-        *SCREEN_HEIGHT as usize,
-    );
-    write!(
-        writer,
-        "total: {}MB  free: {}KB",
+        27,
+        "total: {:>2}MB  free: {:>6}KB",
         memtotal / (1024 * 1024),
         memman.total() / 1024
-    )
-    .unwrap();
-    sheet_manager.refresh(shi_bg, 0, 0, scrnx, 48);
-    let mut count = 0u32;
-    loop {
-        count += 1;
-        boxfill(buf_win_addr, 160, Color::LightGray, 40, 28, 119, 43);
-        let mut writer = ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 40, 28, 160, 52);
-        write!(writer, "{:>010}", count).unwrap();
-        sheet_manager.refresh(shi_win, 40, 28, 120, 44);
+    );
 
+    let min_cursor_x = 8;
+    let max_cursor_x = 144;
+    let mut cursor_x = min_cursor_x;
+    let mut cursor_c = Color::White;
+    loop {
         cli();
-        if KEYBUF.lock().status() != 0 {
-            let key = KEYBUF.lock().get().unwrap();
+        if FIFO_BUF.lock().status() != 0 {
+            let i = FIFO_BUF.lock().get().unwrap();
             sti();
-            boxfill(
-                buf_bg_addr,
-                *SCREEN_WIDTH as isize,
-                Color::DarkCyan,
-                0,
-                0,
-                16,
-                16,
-            );
-            let mut writer = ScreenWriter::new(
-                Some(buf_bg_addr),
-                vga::Color::White,
-                0,
-                0,
-                *SCREEN_WIDTH as usize,
-                *SCREEN_HEIGHT as usize,
-            );
-            write!(writer, "{:x}", key).unwrap();
-            // let v = vec![1, 2];
-            // write!(writer, "{}", v.sum().unwrap());
-            sheet_manager.refresh(shi_bg, 0, 0, 16, 16);
-        } else if MOUSEBUF.lock().status() != 0 {
-            let i = MOUSEBUF.lock().get().unwrap();
-            sti();
-            if mouse_dec.decode(i).is_some() {
-                boxfill(
+            if KEYBOARD_OFFSET <= i && i <= 511 {
+                let key = i - KEYBOARD_OFFSET;
+                write_with_bg!(
+                    sheet_manager,
+                    shi_bg,
                     buf_bg_addr,
                     *SCREEN_WIDTH as isize,
+                    *SCREEN_HEIGHT as isize,
+                    0,
+                    0,
+                    Color::White,
                     Color::DarkCyan,
-                    32,
-                    0,
-                    32 + 15 * 8,
-                    16,
+                    2,
+                    "{:x}",
+                    key
                 );
-                let mut writer = ScreenWriter::new(
-                    Some(buf_bg_addr),
-                    vga::Color::White,
-                    32,
-                    0,
-                    *SCREEN_WIDTH as usize,
-                    *SCREEN_HEIGHT as usize,
-                );
-                write!(
-                    writer,
-                    "[{}{}{} {:>4},{:>4}]",
+                if key < KEYTABLE.len() as u32 {
+                    if KEYTABLE[key as usize] != 0 && cursor_x < max_cursor_x {
+                        write_with_bg!(
+                            sheet_manager,
+                            shi_win,
+                            buf_win_addr,
+                            160,
+                            52,
+                            cursor_x,
+                            28,
+                            Color::Black,
+                            Color::White,
+                            1,
+                            "{}",
+                            KEYTABLE[key as usize] as char,
+                        );
+                        cursor_x += 8;
+                    }
+                    // バックスペース
+                    if key == 0x0e && cursor_x > min_cursor_x {
+                        write_with_bg!(
+                            sheet_manager,
+                            shi_win,
+                            buf_win_addr,
+                            160,
+                            52,
+                            cursor_x,
+                            28,
+                            Color::Black,
+                            Color::White,
+                            1,
+                            " "
+                        );
+                        cursor_x -= 8;
+                    }
+                    boxfill(buf_win_addr, 160, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                    sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
+                }
+            } else if 512 <= i && i <= 767 {
+                if mouse_dec.decode((i - 512) as u8).is_some() {
+                    write_with_bg!(
+                        sheet_manager,
+                        shi_bg,
+                        buf_bg_addr,
+                        *SCREEN_WIDTH as isize,
+                        *SCREEN_HEIGHT as isize,
+                        32,
+                        0,
+                        Color::White,
+                        Color::DarkCyan,
+                        15,
+                        "[{}{}{} {:>4},{:>4}]",
+                        if (mouse_dec.btn.get() & 0x01) != 0 {
+                            'L'
+                        } else {
+                            'l'
+                        },
+                        if (mouse_dec.btn.get() & 0x04) != 0 {
+                            'C'
+                        } else {
+                            'c'
+                        },
+                        if (mouse_dec.btn.get() & 0x02) != 0 {
+                            'R'
+                        } else {
+                            'r'
+                        },
+                        mouse_dec.x.get(),
+                        mouse_dec.y.get(),
+                    );
+                    let (new_x, new_y) =
+                        sheet_manager.get_new_point(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
+                    sheet_manager.slide(shi_mouse, new_x, new_y);
+                    // 左クリックをおしていた場合
                     if (mouse_dec.btn.get() & 0x01) != 0 {
-                        'L'
-                    } else {
-                        'l'
-                    },
-                    if (mouse_dec.btn.get() & 0x04) != 0 {
-                        'C'
-                    } else {
-                        'c'
-                    },
-                    if (mouse_dec.btn.get() & 0x02) != 0 {
-                        'R'
-                    } else {
-                        'r'
-                    },
-                    mouse_dec.x.get(),
-                    mouse_dec.y.get(),
-                )
-                .unwrap();
-                sheet_manager.refresh(shi_bg, 32, 0, 32 + 15 * 8, 16);
-                sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
+                        sheet_manager.slide(shi_win, new_x - 80, new_y - 8);
+                    }
+                }
+            } else if i == 10 {
+                write_with_bg!(
+                    sheet_manager,
+                    shi_bg,
+                    buf_bg_addr,
+                    *SCREEN_WIDTH as isize,
+                    *SCREEN_HEIGHT as isize,
+                    0,
+                    64,
+                    Color::White,
+                    Color::DarkCyan,
+                    7,
+                    "10[sec]"
+                );
+            } else if i == 3 {
+                write_with_bg!(
+                    sheet_manager,
+                    shi_bg,
+                    buf_bg_addr,
+                    *SCREEN_WIDTH as isize,
+                    *SCREEN_HEIGHT as isize,
+                    0,
+                    80,
+                    Color::White,
+                    Color::DarkCyan,
+                    6,
+                    "3[sec]"
+                );
+            } else {
+                if i != 0 {
+                    TIMER_MANAGER.lock().init_timer(timer_index3, 0);
+                    cursor_c = Color::Black;
+                } else {
+                    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
+                    cursor_c = Color::White;
+                }
+                TIMER_MANAGER.lock().set_time(timer_index3, 50);
+                boxfill(buf_win_addr, 160, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             }
         } else {
-            sti();
+            stihlt();
         }
     }
 }
+
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

@@ -2,7 +2,7 @@ use volatile::Volatile;
 use core::cell::{Cell, RefCell};
 use core::alloc::GlobalAlloc;
 use core::alloc::Layout;
-use alloc::vec;
+// use alloc::vec;
 use crate::asm;
 use spin::Mutex;
 

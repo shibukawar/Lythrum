@@ -1,6 +1,6 @@
 ; haribote-os boot asm
 ; TAB=4
-
+VBEMODE	EQU		0x104
 BOTPAK	EQU		0x00280000		; bootpackのロード先
 DSKCAC	EQU		0x00100000		; ディスクキャッシュの場所
 DSKCAC0	EQU		0x00008000		; ディスクキャッシュの場所（リアルモード）
@@ -17,13 +17,13 @@ VRAM	EQU		0x0ff8			; グラフィックバッファの開始番地
 
 ; 画面モードを設定
 
-		MOV		AL,0x13			; VGAグラフィックス、320x200x8bitカラー
-		MOV		AH,0x00
+		MOV		BX,0x4104			; VGAグラフィックス、320x200x8bitカラー
+		MOV		AX,0x4f02
 		INT		0x10
 		MOV		BYTE [VMODE],8	; 画面モードをメモする（C言語が参照する）
-		MOV		WORD [SCRNX],320
-		MOV		WORD [SCRNY],200
-		MOV		DWORD [VRAM],0x000a0000
+		MOV		WORD [SCRNX],1024
+		MOV		WORD [SCRNY],768
+		MOV		DWORD [VRAM],0xfd000000
 
 ; キーボードのLED状態をBIOSに教えてもらう
 
