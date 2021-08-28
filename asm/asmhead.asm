@@ -17,7 +17,7 @@ VRAM	EQU		0x0ff8			; グラフィックバッファの開始番地
 
 ; 画面モードを設定
 
-		MOV		BX,0x4104			; VGAグラフィックス、320x200x8bitカラー
+		MOV		BX,0x4105			; VGAグラフィックス、320x200x8bitカラー
 		MOV		AX,0x4f02
 		INT		0x10
 		MOV		BYTE [VMODE],8	; 画面モードをメモする（C言語が参照する）

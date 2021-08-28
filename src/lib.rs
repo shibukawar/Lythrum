@@ -15,6 +15,7 @@ mod mouse;
 mod sheet;
 mod timer;
 mod vga;
+mod keyboard;
 
 #[no_mangle]
 #[start]

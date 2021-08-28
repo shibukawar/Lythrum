@@ -73,8 +73,6 @@ struct FreeInfo {
     size: u32,
 }
 
-
-
 // #[derive(Clone, Copy)]
 // #[repr(C, packed)]
 pub struct MemMan {
